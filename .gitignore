@@ -1,0 +1,12 @@
+# Never publish: the readable team copy and the answers files.
+# GitHub Pages is public; only the encrypted docs/index.html goes online.
+src/
+exports/
+*.json
+!package.json
+
+node_modules/
+_testbuild/
+.claude/
+.DS_Store
+Thumbs.db
