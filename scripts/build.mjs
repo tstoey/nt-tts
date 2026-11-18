@@ -11,6 +11,10 @@
 //    so the repository only ever holds this encrypted file; the page decrypts it in the browser.
 // 4. Writes docs/index.html and docs/.nojekyll, then decrypts its own output to check it.
 //
+// Team database (optional): if src/firebase.config.json exists (or FIREBASE_CONFIG=<path>), its Firebase
+// web config is placed inside the encrypted page and the team signs in with Google to share answers.
+// Without it, the page keeps answers in each browser and the team merges them with export / import files.
+//
 // Needs Node 20+ and nothing else.
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
@@ -180,9 +184,27 @@ button:disabled{opacity:.6;cursor:default}
 `;
 }
 
+// ---------- Firebase web config (optional) ----------
+async function firebaseConfig(){
+  const file = process.env.FIREBASE_CONFIG ? path.resolve(process.env.FIREBASE_CONFIG) : path.join(ROOT, "src", "firebase.config.json");
+  if (!existsSync(file)) return null;
+  let cfg;
+  try { cfg = JSON.parse(await readFile(file, "utf8")); } catch(e){ fail("อ่าน " + path.relative(ROOT, file) + " ไม่ได้ (ต้องเป็น JSON)"); }
+  for (const k of ["apiKey", "authDomain", "projectId", "appId"]) if (typeof cfg[k] !== "string" || !cfg[k]) fail(path.basename(file) + " ไม่มีค่า " + k);
+  return cfg;
+}
+
 // ---------- run ----------
 const src = await readFile(SRC, "utf8").catch(() => fail("ไม่พบ " + path.relative(ROOT, SRC)));
-const {doc, blocks, notes} = publicCopy(src);
+const built = publicCopy(src);
+const {blocks, notes} = built;
+let doc = built.doc;
+const fbCfg = await firebaseConfig();
+if (fbCfg){
+  const tag = "<script>window.__FIREBASE__ = " + JSON.stringify(fbCfg).replace(/</g, "\\u003c") + ";</script>\n";
+  if (doc.split("<body>\n").length !== 2) fail("ไม่พบ <body> ในหน้าที่ประกอบแล้ว");
+  doc = doc.replace("<body>\n", "<body>\n" + tag);
+}
 const password = await getPassword().catch(e => fail(e.message));
 if ([...password].length < MIN_LEN) fail("รหัสผ่านสั้นเกินไป ต้องมีอย่างน้อย " + MIN_LEN + " ตัวอักษร");
 
@@ -205,4 +227,7 @@ await writeFile(OUT, page, "utf8");
 await writeFile(path.join(OUT_DIR, ".nojekyll"), "", "utf8");
 console.log("✓ เขียน " + path.relative(ROOT, OUT) + " (" + Math.round(page.length / 1024) + " KB)");
 console.log("  ตัดส่วนที่ใช้ภายในทีมออก " + blocks + " ส่วน และโน้ตทีม " + notes + " ข้อ");
+console.log(fbCfg
+  ? "  ฐานข้อมูลของทีม: Firebase โปรเจกต์ " + fbCfg.projectId + " (ทีมล็อกอินด้วย Google)"
+  : "  ไม่มี src/firebase.config.json: คำตอบเก็บในเบราว์เซอร์ของแต่ละคน (ส่งออก / นำเข้าไฟล์)");
 console.log("  push ได้เฉพาะโฟลเดอร์ docs/ — อย่า commit src/ หรือ exports/");
